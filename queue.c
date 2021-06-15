@@ -1,11 +1,23 @@
 #include "queue.h"
+#include <stdio.h>
 
 bool queue_empty(queue_t* q)    {
     return q->head == NULL;     }
 
-void queue_add(pthread_mutex_t* queue_lock, queue_t* q, unsigned value)
+void queue_add_read_thread(pthread_mutex_t** queue_lock, queue_t* q, pthread_cond_t** allow_add, library* lib, unsigned value)
 {
-    pthread_mutex_lock(queue_lock);
+    pthread_mutex_lock(*queue_lock);
+
+    while(lib->writers == 0)
+        pthread_cond_wait(*allow_add, *queue_lock);
+
+    queue_add(queue_lock, q, value);
+    pthread_mutex_unlock(*queue_lock);
+}
+
+void queue_add(pthread_mutex_t** queue_lock, queue_t* q, unsigned value)
+{
+    pthread_mutex_lock(*queue_lock);
 
     node_t* node = (node_t*) calloc(sizeof(node_t), 1);
     node->value = value;
@@ -22,12 +34,13 @@ void queue_add(pthread_mutex_t* queue_lock, queue_t* q, unsigned value)
         n->next = node;
     }
 
-    pthread_mutex_unlock(queue_lock);
+    q->size++;
+    pthread_mutex_unlock(*queue_lock);
 }
 
-void queue_remove(pthread_mutex_t* queue_lock, queue_t* q, unsigned value)
+void queue_remove(pthread_mutex_t** queue_lock, queue_t* q, unsigned value)
 {
-    pthread_mutex_lock(queue_lock);
+    pthread_mutex_lock(*queue_lock);
 
     node_t* node = q->head;
     node_t* prev = q->head;
@@ -45,6 +58,7 @@ void queue_remove(pthread_mutex_t* queue_lock, queue_t* q, unsigned value)
                 prev->next = node->next;
             
             free(node);
+            q->size--;
             break;
         }
         
@@ -52,5 +66,5 @@ void queue_remove(pthread_mutex_t* queue_lock, queue_t* q, unsigned value)
         node = node->next;
     }
 
-    pthread_mutex_unlock(queue_lock);
+    pthread_mutex_unlock(*queue_lock);
 }

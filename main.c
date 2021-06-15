@@ -49,9 +49,11 @@ void* readers_init(void* tid)
         pthread_mutex_lock(&readliblock);           // lock mutex
 
         while (Library.writers != 0 ||              // read-thread is not allowed to enter if there's any write-thread active
-                queue_empty(&ReadThreadQueue))      // read-thread is not allowed to enter if target ThreadQueue is empty
+                queue_empty(&ReadThreadQueue) ||    // read-thread is not allowed to enter if target ThreadQueue is empty
+                id != ReadThreadQueue.head->value)  // read-thread is not allowed to enter if its id doesn't match the position in the queue
             pthread_cond_wait(&ReadCond, &readliblock); // if one of the above occurred wait for the conditional variable signal
 
+        pthread_cond_broadcast(&ReadCond);
         ++Library.readers;                          // increase number of active readers
         pthread_mutex_t* l = &ReadQueueLock;
         queue_remove(&l, &ReadThreadQueue, id);     // emove read-thread from the queue since it entered
@@ -88,12 +90,12 @@ void* writers_init(void* tid)
     {
         pthread_mutex_lock(&liblock);               // lock mutex
 
-        while (Library.writers != 0 ||  // write-thread is not allowed to enter if there's already another write-thread active
-                Library.readers != 0 || // write-thread is not allowed to enter if there's any read-thread active
-                    last_active_thread == WRITE_THREAD || // write-thread is not allowed to enter if a last active thread was write-thread too
-                        queue_empty(&WriteThreadQueue) || // write-thread is not allowed to enter if target ThreadQueue is empty
-                            id != WriteThreadQueue.head->value) // write-thread is not allowed to enter if its id doesn't match the position in the queue
-            pthread_cond_wait(&WriteCond, &liblock); // if one of the above occurred wait for the conditional variable signal
+        while (Library.writers != 0 ||              // write-thread is not allowed to enter if there's already another write-thread active
+                Library.readers != 0 ||             // write-thread is not allowed to enter if there's any read-thread active
+                last_active_thread == WRITE_THREAD||// write-thread is not allowed to enter if a last active thread was write-thread too
+                queue_empty(&WriteThreadQueue) ||   // write-thread is not allowed to enter if target ThreadQueue is empty
+                id != WriteThreadQueue.head->value) // write-thread is not allowed to enter if its id doesn't match the position in the queue
+            pthread_cond_wait(&WriteCond, &liblock);// if one of the above occurred wait for the conditional variable signal
 
         ++Library.writers;                          // increase number of active writers
         pthread_mutex_t* l = &WriteQueueLock;

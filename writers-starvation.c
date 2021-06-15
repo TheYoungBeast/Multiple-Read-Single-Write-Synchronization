@@ -8,25 +8,19 @@
 
 #include "queue.h"
 
-#define buff_size 15000000
-
 pthread_mutex_t WriteQueueLock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t ReadQueueLock = PTHREAD_MUTEX_INITIALIZER;
 
 pthread_mutex_t liblock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t WriteCond = PTHREAD_COND_INITIALIZER;
 
-queue_t ReadThreadQueue = { NULL };
-queue_t WriteThreadQueue = { NULL };
-
-typedef struct 
-{
-    char buffer[ buff_size ];
-    atomic_uint writers;
-    atomic_uint readers;
-} library;
+queue_t ReadThreadQueue = { NULL, 0 };
+queue_t WriteThreadQueue = { NULL, 0 };
 
 library Library = {{0}, 0, 0};
+
+#undef buff_size
+#define buff_size 15000000
 
 void print_library_state(unsigned id)
 {
@@ -37,7 +31,8 @@ void print_library_state(unsigned id)
 void* readers_init(void* tid)
 {
     unsigned id = *((unsigned*) tid)+1;
-    queue_add(&ReadQueueLock, &ReadThreadQueue, id);
+     pthread_mutex_t* rl = &ReadQueueLock;
+    queue_add(&rl, &ReadThreadQueue, id);
 
     while(true) 
     {
@@ -54,19 +49,19 @@ void* readers_init(void* tid)
 
         --Library.readers;
         print_library_state(id);
-        queue_remove(&ReadQueueLock, &ReadThreadQueue, id);
+        queue_remove(&rl, &ReadThreadQueue, id);
 
         if(queue_empty(&ReadThreadQueue))
             pthread_cond_broadcast(&WriteCond);
-        queue_add(&ReadQueueLock, &ReadThreadQueue, id);
+        queue_add(&rl, &ReadThreadQueue, id);
     }
 }
 
 void* writers_init(void* tid)
 {
     unsigned id = *((unsigned*) tid)+1;
-    queue_add(&WriteQueueLock, &WriteThreadQueue, id);
-    srandom(time(NULL));
+    pthread_mutex_t* wl = &WriteQueueLock;
+    queue_add(&wl, &WriteThreadQueue, id);
 
     while(true) 
     {
@@ -78,9 +73,9 @@ void* writers_init(void* tid)
         ++Library.writers;
         print_library_state(id);
 
-        size_t pos = random() % (buff_size/2); // update at least half of the buffer
+        size_t pos = lrand48() % (buff_size/2); // update at least half of the buffer
         for(size_t i = pos; i < buff_size; i++)
-            Library.buffer[ i ] = (char) (random() % 255);
+            Library.buffer[ i ] = (char) (lrand48() % 255);
 
         --Library.writers;
         print_library_state(id);
@@ -90,8 +85,8 @@ void* writers_init(void* tid)
         if(queue_empty(&ReadThreadQueue))
             pthread_cond_broadcast(&WriteCond);
         
-        queue_remove(&WriteQueueLock, &WriteThreadQueue, id);
-        queue_add(&WriteQueueLock, &WriteThreadQueue, id);
+        queue_remove(&wl, &WriteThreadQueue, id);
+        queue_add(&wl, &WriteThreadQueue, id);
     }
 }
 
@@ -103,17 +98,19 @@ int main(int argc, char** argv)
         return 0;
     }
 
+    srand48(time(NULL));
+
     size_t NoReaders = atoi(argv[1]);
     size_t NoWriters = atoi(argv[2]);
 
     pthread_t* ReaderThreads = calloc(sizeof(pthread_t), NoReaders);
     pthread_t* WriterThreads = calloc(sizeof(pthread_t), NoWriters);
 
-    unsigned wtid[ NoWriters ];
-    for(size_t i = 0; i < NoWriters; i++)
+    unsigned rtid[ NoReaders ];
+    for(size_t i = 0; i < NoReaders; i++)
     {
-        wtid[ i ] = i;
-        int ret = pthread_create(&WriterThreads[ i ], NULL, writers_init, (void*) &wtid[i]);
+        rtid[ i ] = i;
+        int ret = pthread_create(&ReaderThreads[ i ], NULL, readers_init, (void*) &rtid[i]);
 
         if(ret)
         {
@@ -122,11 +119,11 @@ int main(int argc, char** argv)
         }
     }
 
-    unsigned rtid[ NoReaders ];
-    for(size_t i = 0; i < NoReaders; i++)
+    unsigned wtid[ NoWriters ];
+    for(size_t i = 0; i < NoWriters; i++)
     {
-        rtid[ i ] = i;
-        int ret = pthread_create(&ReaderThreads[ i ], NULL, readers_init, (void*) &rtid[i]);
+        wtid[ i ] = i;
+        int ret = pthread_create(&WriterThreads[ i ], NULL, writers_init, (void*) &wtid[i]);
 
         if(ret)
         {

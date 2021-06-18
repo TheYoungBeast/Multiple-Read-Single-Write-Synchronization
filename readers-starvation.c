@@ -15,6 +15,7 @@ pthread_mutex_t WriteQueueLock = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t ReadQueueLock = PTHREAD_MUTEX_INITIALIZER;
 
 pthread_mutex_t liblock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t readlock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t WriteCond = PTHREAD_COND_INITIALIZER;
 
 queue_t ReadThreadQueue = { NULL, 0 };
@@ -36,6 +37,8 @@ void* readers_init(void* tid)
 
     while(true) 
     {
+        pthread_mutex_lock(&readlock);
+
         while (Library.writers != 0 || queue_empty(&WriteThreadQueue) != true)
             pthread_cond_broadcast(&WriteCond); // broadcast Writing if it took over (case of signle write thread in queue)
 
@@ -55,6 +58,8 @@ void* readers_init(void* tid)
             //pthread_cond_broadcast(&ReadQueueEmpty);
 
         queue_add(&rl, &ReadThreadQueue, id);
+
+        pthread_mutex_unlock(&readlock);
     }
 }
 
